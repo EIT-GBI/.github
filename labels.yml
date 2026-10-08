@@ -1,12 +1,12 @@
 # labels.yml
 - name: "bump:patch"
   color: "0E8A16"
-  description: "Backwards-compatible bug fix"
+  description: "No change to the code that runs: docs, comments, formatting, CI"
 
 - name: "bump:minor"
   color: "FBCA04"
-  description: "Backwards-compatible new feature"
+  description: "Backwards-compatible code change: bug fix, refactor, new feature"
 
 - name: "bump:major"
   color: "D93F0B"
-  description: "Breaking change"
+  description: "Breaking change for downstream pipelines or users"
