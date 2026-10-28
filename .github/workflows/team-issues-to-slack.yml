@@ -13,6 +13,7 @@ jobs:
       matrix:
         include:
           - team: Bioinformatics
+            repo_prefix: nf-
             webhook_secret: SLACK_WEBHOOK_BIOINFORMATICS
             state_var: LAST_RUN_BIOINFORMATICS
 
@@ -31,6 +32,7 @@ jobs:
           SLACK_WEBHOOK: ${{ secrets[matrix.webhook_secret] }}
           ORG: EIT-GBI
           TEAM: ${{ matrix.team }}
+          REPO_PREFIX: ${{ matrix.repo_prefix }}
           STATE_VAR: ${{ matrix.state_var }}
           STATE_REPO: ${{ github.repository }}
         run: |
@@ -41,8 +43,13 @@ jobs:
                   || date -u -d '1 day ago' +%Y-%m-%dT%H:%M:%SZ)
           echo "Team $TEAM: issues created since $SINCE"
 
-          for repo in $(gh api --paginate "orgs/$ORG/teams/$TEAM/repos?per_page=100" \
-                          --jq '.[] | select(.archived | not) | .full_name'); do
+          # Listed into a variable first so a failed API call stops the run
+          REPOS=$(gh api --paginate "orgs/$ORG/repos?type=all&per_page=100" \
+                    --jq ".[] | select((.archived | not) and (.name | startswith(\"$REPO_PREFIX\"))) | .full_name")
+          echo "Repos matching $REPO_PREFIX*:"
+          echo "$REPOS"
+
+          for repo in $REPOS; do
             gh api --paginate "repos/$repo/issues?since=$SINCE&state=all&per_page=100" |
             jq -c --arg since "$SINCE" --arg repo "$repo" '
               .[]
