@@ -20,9 +20,9 @@ jobs:
     steps:
       - name: Get app token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ secrets.ISSUE_APP_ID }}
+          client-id: ${{ secrets.ISSUE_APP_CLIENT_ID }}
           private-key: ${{ secrets.ISSUE_APP_PRIVATE_KEY }}
           owner: EIT-GBI
 
@@ -52,10 +52,33 @@ jobs:
           for repo in $REPOS; do
             gh api --paginate "repos/$repo/issues?since=$SINCE&state=all&per_page=100" |
             jq -c --arg since "$SINCE" --arg repo "$repo" '
+              def esc: gsub("&";"&amp;") | gsub("<";"&lt;") | gsub(">";"&gt;");
               .[]
               | select(.pull_request == null and .created_at >= $since)
-              | (.title | gsub("&";"&amp;") | gsub("<";"&lt;") | gsub(">";"&gt;")) as $t
-              | {text: ":new: *\($repo)*  <\(.html_url)|#\(.number) \($t)>\nopened by \(.user.login)"}' |
+              | (.title | esc) as $t
+              # Body as one plain-text line: drop HTML comments, code fences, headings,
+              # bold markers, and keep only the text of Markdown links and images
+              | ((.body // "")
+                 | gsub("<!--[\\s\\S]*?-->";"")
+                 | gsub("!?\\[(?<t>[^\\]]*)\\]\\([^)]*\\)";"\(.t)")
+                 | gsub("```";"")
+                 | gsub("\\*\\*";"")
+                 | gsub("#{1,6} ";"")
+                 | gsub("\\s+";" ")
+                 | ltrimstr(" ") | rtrimstr(" ")) as $b
+              | (if ($b | length) > 300 then $b[:300] + "…" else $b end | esc) as $desc
+              | ([.labels[].name | esc] | join(", ")) as $labels
+              | {
+                  text: "New issue in \($repo): #\(.number) \($t)",
+                  blocks: [
+                    {type: "section", text: {type: "mrkdwn",
+                      text: (":new: *<\(.html_url)|#\(.number) \($t)>*"
+                             + (if $desc != "" then "\n>\($desc)" else "" end))}},
+                    {type: "context", elements: [{type: "mrkdwn",
+                      text: ("\($repo) · :bust_in_silhouette: \(.user.login)"
+                             + (if $labels != "" then " · :label: \($labels)" else "" end))}]}
+                  ]
+                }' |
             while read -r payload; do
               curl -sf -X POST -H 'Content-type: application/json' -d "$payload" "$SLACK_WEBHOOK"
             done
