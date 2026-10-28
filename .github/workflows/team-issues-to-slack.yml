@@ -22,8 +22,8 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@v1
         with:
-          app-id: ${{ secrets.ISSUES_APP_ID }}
-          private-key: ${{ secrets.ISSUES_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.ISSUE_APP_ID }}
+          private-key: ${{ secrets.ISSUE_APP_PRIVATE_KEY }}
           owner: EIT-GBI
 
       - name: Post new issues to Slack
