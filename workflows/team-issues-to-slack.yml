@@ -1,0 +1,57 @@
+name: Team issues to Slack
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - team: Bioinformatics
+            webhook_secret: SLACK_WEBHOOK_BIOINFORMATICS
+            state_var: LAST_RUN_BIOINFORMATICS
+
+    steps:
+      - name: Get app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.ISSUE_BOT_APP_ID }}
+          private-key: ${{ secrets.ISSUE_BOT_PRIVATE_KEY }}
+          owner: EIT-GBI
+
+      - name: Post new issues to Slack
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SLACK_WEBHOOK: ${{ secrets[matrix.webhook_secret] }}
+          ORG: EIT-GBI
+          TEAM: ${{ matrix.team }}
+          STATE_VAR: ${{ matrix.state_var }}
+          STATE_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          SINCE=$(gh variable get "$STATE_VAR" -R "$STATE_REPO" 2>/dev/null \
+                  || date -u -d '1 day ago' +%Y-%m-%dT%H:%M:%SZ)
+          echo "Team $TEAM: issues created since $SINCE"
+
+          for repo in $(gh api --paginate "orgs/$ORG/teams/$TEAM/repos?per_page=100" \
+                          --jq '.[] | select(.archived | not) | .full_name'); do
+            gh api --paginate "repos/$repo/issues?since=$SINCE&state=all&per_page=100" |
+            jq -c --arg since "$SINCE" --arg repo "$repo" '
+              .[]
+              | select(.pull_request == null and .created_at >= $since)
+              | (.title | gsub("&";"&amp;") | gsub("<";"&lt;") | gsub(">";"&gt;")) as $t
+              | {text: ":new: *\($repo)*  <\(.html_url)|#\(.number) \($t)>\nopened by \(.user.login)"}' |
+            while read -r payload; do
+              curl -sf -X POST -H 'Content-type: application/json' -d "$payload" "$SLACK_WEBHOOK"
+            done
+          done
+
+          gh variable set "$STATE_VAR" --body "$NOW" -R "$STATE_REPO"
